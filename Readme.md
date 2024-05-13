@@ -21,8 +21,8 @@
 ```go
    // Создаем новый Limiter
    l, err := limiter.New(
-		limiter.WithRefillRate(500*time.Millisecond),
-		limiter.WithCapacity(3),
+      limiter.WithRefillRate(500*time.Millisecond),
+      limiter.WithCapacity(3),
 	)
 
    // Не забываем запустить и остановить его
