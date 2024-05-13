@@ -33,19 +33,17 @@ type Limiter struct {
 	refillRate time.Duration
 	capacity   int64
 
-	numberOfRequests map[string]int64
+	numberOfRequests sync.Map
 }
 
 // New - creates new instance of Limiter
-func New(
-	options ...Option,
-) (*Limiter, error) {
+func New(options ...Option) (*Limiter, error) {
 	var limiter = &Limiter{
 		mu:               sync.Mutex{},
 		log:              log.WrapSLog(slog.Default()).With("service", "limiter"),
 		refillRate:       defaultRefillRate,
 		capacity:         int64(defaultCapacity),
-		numberOfRequests: make(map[string]int64),
+		numberOfRequests: sync.Map{},
 	}
 
 	for _, option := range options {
@@ -94,15 +92,19 @@ func (limiter *Limiter) Token(id string) (string, error) {
 
 	limiter.log.Debug("trying to get token for object", "id", id)
 
-	if limiter.numberOfRequests[id] >= limiter.capacity {
+	var numberOfRequests int64
+	value, ok := limiter.numberOfRequests.Load(id)
+	if ok {
+		numberOfRequests = value.(int64)
+	}
+
+	if numberOfRequests >= limiter.capacity {
 		limiter.log.Error("too many requests for object", "id", id)
 
 		return "", ErrTooManyRequests
 	}
 
-	limiter.mu.Lock()
-	limiter.numberOfRequests[id]++
-	limiter.mu.Unlock()
+	limiter.numberOfRequests.Store(id, numberOfRequests+1)
 
 	limiter.log.Debug("token generated for object", "id", id)
 
@@ -136,29 +138,27 @@ func (limiter *Limiter) refill(log log.Logger) {
 				break
 			}
 
-			for id := range limiter.numberOfRequests {
+			limiter.numberOfRequests.Range(func(id, value any) bool {
 				log.Debug("started decreasing number of requests",
 					"id", id,
 				)
 
-				if limiter.numberOfRequests[id] == 0 {
+				var numberOfRequests = value.(int64)
+				if numberOfRequests != 0 {
+					log.Debug("number of requests decreased",
+						"id", id,
+						"numberOfRequests", numberOfRequests-1,
+					)
+
+					limiter.numberOfRequests.Store(id, numberOfRequests-1)
+				} else {
 					log.Debug("number of requests is zero",
 						"id", id,
 					)
-
-					continue
 				}
 
-				limiter.mu.Lock()
-				limiter.numberOfRequests[id]--
-				limiter.mu.Unlock()
-
-				log.Debug("number of requests decreased",
-					"id", id,
-					"numberOfRequests", limiter.numberOfRequests[id],
-				)
-			}
-
+				return true
+			})
 		case <-limiter.ctx.Done():
 			shouldRun = false
 			break
