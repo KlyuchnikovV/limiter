@@ -23,7 +23,7 @@
    l, err := limiter.New(
       limiter.WithRefillRate(500*time.Millisecond),
       limiter.WithCapacity(3),
-	)
+   )
 
    // Не забываем запустить и остановить его
    l.Start(ctx)
